@@ -3,27 +3,63 @@ import { useParams, Link } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 
 export default function BabyMilkTracker() {
-  const { date } = useParams(); // Get selected date from URL
-  const [goal, setGoal] = useState(800);
+  const { date } = useParams();
   const [logs, setLogs] = useState([]);
-  const [percentage, setPercentage] = useState(0);
+  const [allLogs, setAllLogs] = useState([]);
+  const [peeLogs, setPeeLogs] = useState([]);
+  const [poopLogs, setPoopLogs] = useState([]);
+  const [total, setTotal] = useState(0);
   const [customAmount, setCustomAmount] = useState("");
   const [customNote, setCustomNote] = useState("");
 
-  const API_URL = "http://localhost:8000"; // Adjust if using Docker
+  const API_URL = "http://localhost:8000";
 
-  // **Fetch logs from FastAPI**
+  const refreshAllLogs = () => {
+    fetch(`${API_URL}/pee/${date}`)
+      .then((res) => res.json())
+      .then((pee) => {
+        fetch(`${API_URL}/poop/${date}`)
+          .then((res) => res.json())
+          .then((poop) => {
+            const milkLogs = logs.map(log => ({ ...log, type: 'Milk' }));
+            const peeLogs = (pee.logs || []).map(log => ({ ...log, type: 'Pee' }));
+            const poopLogs = (poop.logs || []).map(log => ({ ...log, type: 'Poop' }));
+            const all = [...milkLogs, ...peeLogs, ...poopLogs].sort((a, b) =>
+              new Date(b.created_at || b.date) - new Date(a.created_at || a.date)
+            );
+            setAllLogs(all);
+            setPeeLogs(pee.logs || []);
+            setPoopLogs(poop.logs || []);
+          });
+      });
+  };
+
+
   useEffect(() => {
     fetch(`${API_URL}/entries/${date}`)
       .then((res) => res.json())
       .then((data) => {
-        setLogs(data.entries || []);
-        calculatePercentage(data.entries || [], goal);
+        setLogs((data.entries || []).slice().sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)));
+        calculateTotal(data.entries || []);
       })
       .catch((error) => console.error("Error fetching logs:", error));
   }, [date]);
 
-  // **Connect to WebSocket for real-time updates**
+  const handleAddPoop = () => {
+    fetch(`${API_URL}/poop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        console.log("✅ Poop logged", data);
+        // Refresh logs
+        refreshAllLogs();
+      });
+  };
+
+
   useEffect(() => {
     const socket = new WebSocket("ws://localhost:8000/ws");
 
@@ -40,32 +76,21 @@ export default function BabyMilkTracker() {
       fetch(`${API_URL}/entries/${date}`)
         .then((res) => res.json())
         .then((data) => {
-          setLogs(data.entries || []);
-          calculatePercentage(data.entries || [], goal);
+          setLogs((data.entries || []).slice().sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)));
+          calculateTotal(data.entries || []);
         });
     };
 
     return () => socket.close();
   }, [date]);
 
-  // **Calculate percentage of goal reached**
-  const calculatePercentage = (logs, goalValue) => {
-    const total = logs.reduce((sum, entry) => sum + entry.amount, 0);
-    setPercentage(((total / goalValue) * 100).toFixed(2));
-  };
-
-  // **Handle goal change**
-  const handleGoalChange = (e) => {
-    const newGoal = Number(e.target.value);
-    setGoal(newGoal);
-    calculatePercentage(logs, newGoal);
+  const calculateTotal = (logs) => {
+    const totalAmount = logs.reduce((sum, entry) => sum + entry.amount, 0);
+    setTotal(totalAmount);
   };
 
   const handleAddEntry = (amount, note = "") => {
-    // Ensure amount is a valid number, default to 0 if empty
     const parsedAmount = amount === "" || isNaN(amount) ? 0 : parseFloat(amount);
-
-    // If both amount and note are empty, prevent submission
     if (parsedAmount === 0 && note.trim() === "") {
       console.warn("⚠️ Entry must have either an amount or a note.");
       return;
@@ -75,9 +100,9 @@ export default function BabyMilkTracker() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        date: date,  // Ensure date is in "YYYY-MM-DD" format
-        amount: parsedAmount, // Convert to number, default 0 if empty
-        notes: note.trim(), // Keep only non-empty notes
+        date,
+        amount: parsedAmount,
+        notes: note.trim(),
       }),
     })
       .then(async (res) => {
@@ -90,103 +115,164 @@ export default function BabyMilkTracker() {
       })
       .then((data) => {
         console.log("✅ Entry added successfully:", data);
-        setCustomAmount(""); // Clear input field
-        setCustomNote(""); // Clear note field
+        setCustomAmount("");
+        setCustomNote("");
       })
       .catch((error) => console.error("❌ Error adding entry:", error));
   };
 
+  const handleDeleteEntry = (id, type) => {
+    let endpoint = "/entries";
+    if (type === "Pee") endpoint = "/pee";
+    else if (type === "Poop") endpoint = "/poop";
 
-
-
-  // **Delete an entry (DELETE)**
-  const handleDeleteEntry = (id) => {
-    fetch(`${API_URL}/entries/${id}`, { method: "DELETE" })
+    fetch(`${API_URL}${endpoint}/${id}`, { method: "DELETE" })
       .then((res) => res.json())
-      .catch((error) => console.error("Error deleting entry:", error));
+      .then((data) => {
+        console.log(`✅ ${type} entry deleted`, data);
+        refreshAllLogs();  // 👈 Add this line to trigger re-render
+      })
+      .catch((error) => console.error(`Error deleting ${type} entry:`, error));
   };
+
+
+
+  const formatTime = (timestamp) => {
+    const dateObj = new Date(timestamp);
+    return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  useEffect(() => {
+
+    fetch(`${API_URL}/pee/${date}`)
+      .then((res) => res.json())
+      .then((data) => setPeeLogs(data.logs || []));
+
+    fetch(`${API_URL}/poop/${date}`)
+      .then((res) => res.json())
+      .then((data) => setPoopLogs(data.logs || []));
+
+    fetch(`${API_URL}/pee/${date}`)
+      .then((res) => res.json())
+      .then((pee) => {
+        fetch(`${API_URL}/poop/${date}`)
+          .then((res) => res.json())
+          .then((poop) => {
+            const milkLogs = logs.map(log => ({
+              ...log,
+              type: 'Milk'
+            }));
+            const peeLogs = (pee.logs || []).map(log => ({
+              ...log,
+              type: 'Pee'
+            }));
+            const poopLogs = (poop.logs || []).map(log => ({
+              ...log,
+              type: 'Poop'
+            }));
+            const all = [...milkLogs, ...peeLogs, ...poopLogs].sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
+            setAllLogs(all);
+          });
+      });
+  }, [logs, date]);
+
+  const handleAddPee = () => {
+    fetch(`${API_URL}/pee`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        console.log("✅ Pee logged", data);
+        // Refresh logs
+        refreshAllLogs();
+      });
+  };
+
+
 
   return (
     <div className="container mt-4">
       <h1 className="fw-bold mb-3 text-center fs-4">Milk Tracker - {date}</h1>
 
-      {/* Back to Calendar */}
       <div className="mb-3 text-center">
         <Link to="/" className="btn btn-outline-dark rounded-3 fs-6">← Back to Calendar</Link>
       </div>
 
-      {/* Goal Input */}
-      <div className="mb-4">
-        <label className="form-label fs-5">Daily Goal (ml)</label>
-        <input
-          type="number"
-          value={goal}
-          onChange={handleGoalChange}
-          className="form-control rounded-3 shadow-sm fs-5"
-        />
-      </div>
-
-      {/* Add Entry */}
-      <div className="card border-0 shadow-sm rounded-3">
-        <div className="card-body">
-          <h2 className="h5 mb-3 fs-5">Add Entry</h2>
-          <div className="row g-2">
-            <div className="col-12 col-md-auto">
-              <button className="btn btn-dark rounded-3 w-100 fs-6" onClick={() => handleAddEntry(80)}>80 ml</button>
-            </div>
-            <div className="col-12 col-md-auto">
-              <button className="btn btn-dark rounded-3 w-100 fs-6" onClick={() => handleAddEntry(200)}>200 ml</button>
-            </div>
-            <div className="col-12 col-md-auto">
-              <button className="btn btn-danger rounded-3 w-100 fs-6" onClick={() => handleAddEntry(-50)}>−50 ml (Puked)</button>
-            </div>
-            <div className="col-12">
-              <input
-                type="number"
-                placeholder="Enter custom amount"
-                value={customAmount}
-                onChange={(e) => setCustomAmount(e.target.value)}
-                className="form-control rounded-3 shadow-sm fs-6 mb-2"
-              />
-              <input
-                type="text"
-                placeholder="Add a note (optional)"
-                value={customNote}
-                onChange={(e) => setCustomNote(e.target.value)}
-                className="form-control rounded-3 shadow-sm fs-6 mb-2"
-              />
-              <button className="btn btn-success w-100 rounded-3 fs-6" onClick={() => handleAddEntry(customAmount, customNote)}>Add</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Progress Bar */}
       <div className="mt-4">
-        <h2 className="h5 fs-5">Progress</h2>
-        <div className="progress mt-2 bg-light rounded-3 shadow-sm">
-          <div className="progress-bar bg-dark" role="progressbar" style={{ width: `${percentage}%` }}>
-            {percentage}%
-          </div>
+        <h2 className="h5 fs-5">Score for the day !!</h2>
+
+        <div className="alert alert-info shadow-sm fs-6">
+          🍼 {total} ml &nbsp;&nbsp;|&nbsp;&nbsp; 💧 {peeLogs.length} times &nbsp;&nbsp;|&nbsp;&nbsp; 💩 {poopLogs.length} times
         </div>
-        <p className="mt-2 text-muted fs-6">{percentage}% of daily goal reached</p>
+
+
       </div>
 
-      {/* Logs */}
       <div className="mt-4">
-        <h2 className="h5 fs-5">Logs</h2>
-        <ul className="list-group mt-2 shadow-sm">
-          {logs.map((log) => (
-            <li key={log.id} className="list-group-item d-flex justify-content-between align-items-center border-0">
-              <div>
-                <span className="fs-6">{log.time} - {log.amount} ml</span>
-                {log.notes && <small className="d-block text-muted">{log.notes}</small>}
+
+        <div className="card border-0 shadow-sm rounded-3 mt-4">
+          <div className="card-body">
+            <h2 className="h5 mb-3 fs-5">Add Entry</h2>
+
+            <div className="row g-2">
+              <div className="col-12 col-md-auto">
+                <button className="btn btn-warning rounded-3 w-100 fs-6 text-center" onClick={handleAddPee}>💧 Pee</button>
               </div>
-              <button className="btn btn-danger btn-sm rounded-3" onClick={() => handleDeleteEntry(log.id)}>Delete</button>
-            </li>
-          ))}
-        </ul>
+              <div className="col-12 col-md-auto">
+                <button className="btn btn-secondary rounded-3 w-100 fs-6 text-center" onClick={handleAddPoop}>💩 Poop</button>
+              </div>
+              <div className="col-12 col-md-auto">
+                <button className="btn btn-dark rounded-3 w-100 fs-6 text-center" onClick={() => handleAddEntry(80)}>🍼 80 ml</button>
+              </div>
+              <div className="col-12 col-md-auto">
+                <button className="btn btn-dark rounded-3 w-100 fs-6 text-center" onClick={() => handleAddEntry(200)}>🍼 200 ml</button>
+              </div>
+              <div className="col-12 col-md-auto">
+                <button className="btn btn-danger rounded-3 w-100 fs-6 text-center" onClick={() => handleAddEntry(-50)}>🤮 −50 ml</button>
+              </div>
+              <div className="col-12">
+                <input
+                  type="number"
+                  placeholder="Enter custom amount"
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(e.target.value)}
+                  className="form-control rounded-3 shadow-sm fs-6 mb-2"
+                />
+                <input
+                  type="text"
+                  placeholder="Add a note (optional)"
+                  value={customNote}
+                  onChange={(e) => setCustomNote(e.target.value)}
+                  className="form-control rounded-3 shadow-sm fs-6 mb-2"
+                />
+                <button className="btn btn-success w-100 rounded-3 fs-6" onClick={() => handleAddEntry(customAmount, customNote)}>Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <h2 className="h5 fs-5">Logs</h2>
+          <ul className="list-group mt-2 shadow-sm">
+            {allLogs.map((log, index) => (
+              <li key={index} className="list-group-item d-flex justify-content-between align-items-center border-0">
+                <div>
+                  <span className="fs-6">{formatTime(log.created_at || log.date)} - {log.type === 'Milk' ? '🍼' : log.type === 'Pee' ? '💧' : log.type === 'Poop' ? '💩' : log.type}{log.amount ? `${log.amount} ml` : ''}</span>
+                  {log.notes && <small className="d-block text-muted">{log.notes}</small>}
+                </div>
+                {log.id && (
+                  <button className="btn btn-danger btn-sm rounded-3" onClick={() => handleDeleteEntry(log.id, log.type)}>
+                    Delete
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );
 }
+// Add any additional CSS styles here if needed
