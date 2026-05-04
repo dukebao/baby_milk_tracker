@@ -138,8 +138,8 @@ export default function BabyMilkTracker({ auth, selectedBaby, onLogout }) {
               Logout
             </button>
           </div>
-          <div className="kicker">{selectedBaby.name}</div>
-          <h1 className="page-title">Milk Tracker</h1>
+          <div className="kicker">Milk Tracker</div>
+          <h1 className="page-title">{selectedBaby.name}</h1>
           <p className="page-subtitle">{date}</p>
         </header>
 

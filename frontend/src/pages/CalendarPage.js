@@ -97,25 +97,42 @@ export default function CalendarPage({
       <section className="hero-panel">
         <header className="page-header">
           <div className="top-bar">
-            <select
-              className="form-control baby-select"
-              value={selectedBabyId || selectedBaby?.id || ""}
-              onChange={(event) => onBabyChange(event.target.value)}
-            >
-              {(auth.babies || []).map((baby) => (
-                <option key={baby.id} value={baby.id}>
-                  {baby.name}
-                </option>
-              ))}
-            </select>
+            <div className="baby-tools">
+              <select
+                className="form-control baby-select"
+                value={selectedBabyId || selectedBaby?.id || ""}
+                onChange={(event) => onBabyChange(event.target.value)}
+              >
+                {(auth.babies || []).map((baby) => (
+                  <option key={baby.id} value={baby.id}>
+                    {baby.name}
+                  </option>
+                ))}
+              </select>
+
+              <form className="add-baby-inline" onSubmit={handleAddBaby}>
+                <input
+                  type="text"
+                  value={newBabyName}
+                  onChange={(event) => setNewBabyName(event.target.value)}
+                  className="form-control"
+                  placeholder="Add baby"
+                />
+                <button className="btn btn-success" type="submit">
+                  Add
+                </button>
+              </form>
+            </div>
+
             <button className="btn btn-outline-dark" type="button" onClick={onLogout}>
               Logout
             </button>
           </div>
 
-          <div className="kicker">{selectedBaby?.name || "Baby"}</div>
-          <h1 className="page-title">Milk Tracker</h1>
+          <div className="kicker">Milk Tracker</div>
+          <h1 className="page-title">{selectedBaby?.name || "Baby"}</h1>
           <p className="page-subtitle">Daily feeding and diaper notes for your family.</p>
+          {error && <div className="alert alert-danger header-alert">{error}</div>}
         </header>
 
         <div className="content-grid">
@@ -131,21 +148,6 @@ export default function CalendarPage({
               Go to Tracker
             </button>
           </section>
-
-          <form className="soft-card" onSubmit={handleAddBaby}>
-            <h2 className="section-title">Add Baby</h2>
-            <input
-              type="text"
-              value={newBabyName}
-              onChange={(event) => setNewBabyName(event.target.value)}
-              className="form-control"
-              placeholder="Name"
-            />
-            {error && <div className="alert alert-danger mt-3 mb-0">{error}</div>}
-            <button className="btn btn-success w-100 mt-3" type="submit">
-              Add
-            </button>
-          </form>
 
           <section className="soft-card calendar-card">
             <div className="calendar-toolbar">

@@ -128,6 +128,22 @@
   margin-bottom: 18px;
 }
 
+.baby-tools,
+.add-baby-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.baby-tools {
+  flex: 1;
+}
+
+.add-baby-inline {
+  flex: 0 1 290px;
+}
+
 .section-header {
   justify-content: space-between;
   margin-bottom: 14px;
@@ -150,6 +166,20 @@
 
 .baby-select {
   max-width: 260px;
+}
+
+.add-baby-inline .form-control {
+  min-width: 0;
+}
+
+.add-baby-inline .btn {
+  min-width: 64px;
+}
+
+.header-alert {
+  max-width: 520px;
+  margin: 16px auto 0;
+  text-align: left;
 }
 
 .form-control,
@@ -396,6 +426,15 @@
   .top-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .baby-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .add-baby-inline {
+    flex: 0 1 auto;
   }
 
   .baby-select {
