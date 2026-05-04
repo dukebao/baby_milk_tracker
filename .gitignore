@@ -19,6 +19,9 @@ backend/node_modules/
 
 # production
 /build
+frontend/build/
+*.zip
+frontend_updated_files_only/
 
 # misc
 .DS_Store

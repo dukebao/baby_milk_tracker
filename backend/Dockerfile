@@ -10,10 +10,6 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install fastapi-cors
-RUN pip install fastapi-cors
-RUN pip install fastapi[all]
-
 # Copy application code
 COPY . .
 
