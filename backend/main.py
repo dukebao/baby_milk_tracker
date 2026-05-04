@@ -258,6 +258,20 @@ def parse_date(value: str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
 
+def serialize_milk_entry(entry: MilkEntry):
+    return {
+        "id": entry.id,
+        "date": str(entry.date),
+        "amount": entry.amount,
+        "notes": entry.notes,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+def serialize_log(log):
+    return {"id": log.id, "created_at": log.created_at.isoformat()}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -362,17 +376,25 @@ def get_entries(date: str, baby: Baby = Depends(get_current_baby), db: Session =
         .order_by(MilkEntry.created_at.desc())
         .all()
     )
+    return {"entries": [serialize_milk_entry(entry) for entry in entries]}
+
+
+@app.get("/days/{date}")
+def get_day_summary(date: str, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
+    entry_date = parse_date(date)
+    entries = (
+        db.query(MilkEntry)
+        .filter(MilkEntry.date == entry_date, MilkEntry.baby_id == baby.id)
+        .order_by(MilkEntry.created_at.desc())
+        .all()
+    )
+    pee_logs = db.query(PeeLog).filter(PeeLog.date == entry_date, PeeLog.baby_id == baby.id).all()
+    poop_logs = db.query(PoopLog).filter(PoopLog.date == entry_date, PoopLog.baby_id == baby.id).all()
+
     return {
-        "entries": [
-            {
-                "id": e.id,
-                "date": str(e.date),
-                "amount": e.amount,
-                "notes": e.notes,
-                "created_at": e.created_at.isoformat() if e.created_at else None,
-            }
-            for e in entries
-        ]
+        "entries": [serialize_milk_entry(entry) for entry in entries],
+        "pee_logs": [serialize_log(log) for log in pee_logs],
+        "poop_logs": [serialize_log(log) for log in poop_logs],
     }
 
 
@@ -454,14 +476,14 @@ def add_poop_log(
 def get_pee_logs(date: str, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
     log_date = parse_date(date)
     logs = db.query(PeeLog).filter(PeeLog.date == log_date, PeeLog.baby_id == baby.id).all()
-    return {"logs": [{"id": log.id, "created_at": log.created_at.isoformat()} for log in logs]}
+    return {"logs": [serialize_log(log) for log in logs]}
 
 
 @app.get("/poop/{date}")
 def get_poop_logs(date: str, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
     log_date = parse_date(date)
     logs = db.query(PoopLog).filter(PoopLog.date == log_date, PoopLog.baby_id == baby.id).all()
-    return {"logs": [{"id": log.id, "created_at": log.created_at.isoformat()} for log in logs]}
+    return {"logs": [serialize_log(log) for log in logs]}
 
 
 @app.delete("/pee/{entry_id}")

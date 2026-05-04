@@ -21,24 +21,22 @@ export default function BabyMilkTracker({ auth, selectedBaby, onLogout }) {
     [auth.token, selectedBaby?.id]
   );
 
-  const refreshLogs = useCallback(async () => {
+  const refreshLogs = useCallback(async ({ showLoading = true } = {}) => {
     if (!selectedBaby?.id) {
       return;
     }
 
     setError("");
-    setIsLoading(true);
+    if (showLoading) {
+      setIsLoading(true);
+    }
 
     try {
-      const [milk, pee, poop] = await Promise.all([
-        apiRequest(`/entries/${date}`, requestOptions),
-        apiRequest(`/pee/${date}`, requestOptions),
-        apiRequest(`/poop/${date}`, requestOptions),
-      ]);
+      const day = await apiRequest(`/days/${date}`, requestOptions);
 
-      const milkLogs = (milk.entries || []).map((log) => ({ ...log, type: "Milk" }));
-      const nextPeeLogs = pee.logs || [];
-      const nextPoopLogs = poop.logs || [];
+      const milkLogs = (day.entries || []).map((log) => ({ ...log, type: "Milk" }));
+      const nextPeeLogs = day.pee_logs || [];
+      const nextPoopLogs = day.poop_logs || [];
       const allLogs = [
         ...milkLogs,
         ...nextPeeLogs.map((log) => ({ ...log, type: "Pee" })),
@@ -79,7 +77,7 @@ export default function BabyMilkTracker({ auth, selectedBaby, onLogout }) {
     setError("");
     try {
       await action();
-      await refreshLogs();
+      await refreshLogs({ showLoading: false });
     } catch (err) {
       setError(err.message);
     }
