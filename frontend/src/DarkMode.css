@@ -1,0 +1,93 @@
+/* Separate dark palette. Enabled only by Settings > Appearance. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --cream: #171b24;
+  --cream-2: #202532;
+  --peach: #3b2933;
+  --rose: #d78798;
+  --coral: #f29cac;
+  --coral-dark: #f4b6c2;
+  --lavender: #343044;
+  --mint: #253c36;
+  --butter: #403822;
+  --ink: #f1eef5;
+  --muted: #b6b2c2;
+  --soft-border: #373947;
+  --shadow-soft: 0 22px 60px rgba(0, 0, 0, 0.24);
+  --shadow-card: 0 14px 38px rgba(0, 0, 0, 0.15);
+  --theme-switch-off: #454b5c;
+}
+
+[data-theme="dark"] body {
+  background: radial-gradient(circle at top left, #302431 0, transparent 36%),
+    linear-gradient(180deg, #151821, #11141b);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .hero-panel {
+  background: rgba(24, 28, 38, 0.96);
+  border-color: var(--soft-border);
+}
+
+[data-theme="dark"] .hero-panel::before { background: rgba(160, 78, 108, 0.12); }
+[data-theme="dark"] .hero-panel::after { background: rgba(130, 116, 180, 0.1); }
+[data-theme="dark"] .kicker { background: #332634; }
+[data-theme="dark"] .soft-card { background: #202530; }
+[data-theme="dark"] .stat-card { background: linear-gradient(145deg, #262c39, #222632); border-color: var(--soft-border); }
+[data-theme="dark"] .log-item,
+[data-theme="dark"] .weekly-row,
+[data-theme="dark"] .empty-state { background: #272c38; border-color: var(--soft-border); }
+[data-theme="dark"] .calendar-empty { background: #1b202b; }
+[data-theme="dark"] .role-badge { background: #2d3240; }
+
+[data-theme="dark"] .form-control {
+  background: #171c26;
+  color: var(--ink);
+  border-color: #454455;
+}
+[data-theme="dark"] .form-control::placeholder { color: #aaa6b6; }
+[data-theme="dark"] .form-control:disabled { background: #222732; color: var(--muted); }
+[data-theme="dark"] .form-control:focus { background: #171c26; color: var(--ink); border-color: var(--coral); }
+[data-theme="dark"] .text-muted { color: var(--muted) !important; }
+
+[data-theme="dark"] .btn-dark,
+[data-theme="dark"] .btn-primary,
+[data-theme="dark"] .btn-primary-soft { color: #24151c !important; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2); }
+[data-theme="dark"] .btn-outline-dark {
+  background: #2a2d3b !important;
+  color: var(--coral-dark) !important;
+  border-color: #4d3d4e !important;
+  box-shadow: none;
+}
+[data-theme="dark"] .btn-warning { color: #f3dea4 !important; }
+[data-theme="dark"] .btn-secondary { color: #ddd0ff !important; }
+[data-theme="dark"] .btn-success { color: #bee9d9 !important; }
+[data-theme="dark"] .btn-danger { background: #633440 !important; color: #ffdde4 !important; }
+[data-theme="dark"] .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+[data-theme="dark"] .settings-dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+[data-theme="dark"] .settings-drawer { background: #1b202b; }
+[data-theme="dark"] .appearance-switch input { accent-color: var(--coral); }
+
+[data-theme="dark"] .settings-dialog, [data-theme="dark"] .setup-page {
+  --control-surface: #171c26;
+  --control-border: #73798c;
+  --control-text: #f1eef5;
+  --control-disabled: #252a36;
+  --action-surface: #303444;
+  --action-border: #b67b92;
+  --action-hover: #424156;
+  --info-surface: #252a36;
+}
+[data-theme="dark"] .settings-dialog .btn-outline-dark, [data-theme="dark"] .setup-page .btn-outline-dark {
+  background: var(--action-surface) !important;
+  border-color: var(--action-border) !important;
+}
+[data-theme="dark"] .settings-dialog .form-control,
+[data-theme="dark"] .settings-dialog .form-select,
+[data-theme="dark"] .setup-page .form-control { border-color: var(--control-border); }
+[data-theme="dark"] .settings-dialog .form-control:focus,
+[data-theme="dark"] .settings-dialog .form-select:focus,
+[data-theme="dark"] .setup-page .form-control:focus { border-color: var(--action-border); }
+[data-theme="dark"] .settings-dialog .form-control:disabled,
+[data-theme="dark"] .settings-dialog .form-control[readonly],
+[data-theme="dark"] .setup-page .form-control:disabled { background: var(--control-disabled); border-color: var(--soft-border); }

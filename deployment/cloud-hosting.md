@@ -1,49 +1,28 @@
-# Cloud Hosting Path
+# Free hosting with Cloudflare Pages and Supabase
 
-The app no longer depends on a Raspberry Pi or WebSocket support.
+Only the React frontend is deployed to Cloudflare Pages. Supabase provides Auth,
+database access and household functions; no FastAPI/Render deployment is needed.
 
-## Recommended Free Path
+1. Complete [Supabase setup](../supabase/README.md).
+2. Connect this repository to Cloudflare Pages.
+3. Use root directory `frontend`, build command `npm run build`, output directory
+   `build`, and Node.js 22 (`NODE_VERSION=22`).
+4. Add build environment variables `REACT_APP_SUPABASE_URL` and
+   `REACT_APP_SUPABASE_PUBLISHABLE_KEY`. Optionally set
+   `REACT_APP_GOOGLE_LOGIN=true` after configuring the Google provider.
+5. In Supabase Auth URL Configuration, set Site URL to your Pages HTTPS address
+   and add `https://YOUR-SITE.pages.dev/**` to allowed redirects. Add any custom
+   domain and trusted preview addresses separately.
+6. Test sign-up/confirmation, login, invite acceptance, logging and exports on
+   your phone. Deep links are supported by `frontend/public/_redirects`.
 
-Use this split:
+These are build-time environment variables: redeploy after changing them.
+There are no backend database passwords or service-role keys in Pages.
 
-- Frontend: Cloudflare Pages or Vercel
-- Backend API: a Python/FastAPI host
-- Database: managed Postgres such as Supabase or Neon
+Free Supabase projects can pause after inactivity and do not include automatic
+database backups. Keep periodic all-record JSON exports from Settings.
 
-The backend reads `DATABASE_URL`, so local development can use SQLite while cloud hosting can use Postgres.
-
-## Local Development
-
-```powershell
-cd C:\Users\steve\Desktop\baby\baby_milk_tracker\deployment
-docker compose up --build
-```
-
-Local data is stored in:
-
-```text
-backend/data/dev_milk_tracking.db
-```
-
-## Frontend Environment
-
-Set this on the frontend host:
-
-```text
-REACT_APP_API_URL=https://your-api-host.example.com
-```
-
-## Backend Environment
-
-Set these on the backend host:
-
-```text
-DATABASE_URL=postgresql://user:password@host:5432/database
-CORS_ORIGINS=https://your-frontend-host.example.com
-```
-
-## Notes
-
-- Do not use cloud local disk or SQLite for real shared data.
-- Use SQLite only for local testing.
-- When you are ready, Supabase is still the best fit because it gives you Postgres, auth options, and later realtime if you ever want it.
+Official references:
+- [Cloudflare React deployments](https://developers.cloudflare.com/pages/framework-guides/deploy-a-react-site/)
+- [Supabase redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
+- [Supabase free plan](https://supabase.com/pricing)

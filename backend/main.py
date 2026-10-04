@@ -1,19 +1,33 @@
+"""HTTP API; SQLite locally, PostgreSQL through DATABASE_URL when configured."""
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Integer, String, create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
-from typing import List, Optional
+from sqlalchemy.orm import Session
+from typing import Optional
 import datetime
 import hashlib
 import hmac
 import os
 import secrets
 
+from database import get_db
+from time_utils import utc_now
+from reporting import history_summary, export_records
+from init_db import initialize_database, ensure_household_member
+from models import (User, UserPreferences, SessionToken, Household, HouseholdMember, HouseholdInvite,
+                    Baby, MilkEntry, DailyGoal, Measurement, PeeLog, PoopLog, BreastfeedingLog)
+from schemas import (RegisterRequest, LoginRequest, BabyCreate, BabyUpdate, InviteCreate,
+                     HouseholdUpdate, EntryCreate, EntryUpdate, GoalCreate,
+                     MeasurementCreate, DateOnly, PreferencesUpdate)
 
-app = FastAPI()
 
+@asynccontextmanager
+async def lifespan(app):
+    initialize_database()
+    yield
+
+
+app = FastAPI(title="Baby Milk Tracker API", lifespan=lifespan)
 allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -23,162 +37,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/dev_milk_tracking.db")
-if DATABASE_URL.startswith("sqlite:///"):
-    db_file = DATABASE_URL.replace("sqlite:///", "", 1)
-    db_dir = os.path.dirname(db_file)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class SessionToken(Base):
-    __tablename__ = "session_tokens"
-    id = Column(Integer, primary_key=True, index=True)
-    token = Column(String, unique=True, index=True, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class Baby(Base):
-    __tablename__ = "babies"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class BabyMember(Base):
-    __tablename__ = "baby_members"
-    id = Column(Integer, primary_key=True, index=True)
-    baby_id = Column(Integer, ForeignKey("babies.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role = Column(String, default="owner")
-
-
-class MilkEntry(Base):
-    __tablename__ = "milk_entries"
-    id = Column(Integer, primary_key=True, index=True)
-    baby_id = Column(Integer, ForeignKey("babies.id"), index=True, nullable=True)
-    date = Column(Date, index=True)
-    amount = Column(Float)
-    notes = Column(String, nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class DailyGoal(Base):
-    __tablename__ = "daily_goals"
-    id = Column(Integer, primary_key=True, index=True)
-    baby_id = Column(Integer, ForeignKey("babies.id"), index=True, nullable=True)
-    date = Column(Date, index=True)
-    goal = Column(Integer, default=800)
-
-
-class Measurement(Base):
-    __tablename__ = "measurements"
-    id = Column(Integer, primary_key=True, index=True)
-    baby_id = Column(Integer, ForeignKey("babies.id"), index=True, nullable=True)
-    date = Column(Date, index=True)
-    weight = Column(Float)
-    height = Column(Float)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class PeeLog(Base):
-    __tablename__ = "pee_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    baby_id = Column(Integer, ForeignKey("babies.id"), index=True, nullable=True)
-    date = Column(Date, index=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class PoopLog(Base):
-    __tablename__ = "poop_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    baby_id = Column(Integer, ForeignKey("babies.id"), index=True, nullable=True)
-    date = Column(Date, index=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    baby_name: str = "Baby"
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class BabyCreate(BaseModel):
-    name: str
-
-
-class EntryCreate(BaseModel):
-    date: str
-    amount: float
-    notes: str = ""
-
-
-class GoalCreate(BaseModel):
-    date: str
-    goal: int
-
-
-class MeasurementCreate(BaseModel):
-    date: str
-    weight: float
-    height: float
-
-
-class DateOnly(BaseModel):
-    date: str
-
-
-Base.metadata.create_all(bind=engine)
-
-
-def add_column_if_missing(table_name: str, column_name: str, column_sql: str):
-    if not DATABASE_URL.startswith("sqlite"):
-        return
-    with engine.begin() as connection:
-        columns = connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
-        if column_name not in [column[1] for column in columns]:
-            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}"))
-
-
-for table in ["milk_entries", "daily_goals", "measurements", "pee_logs", "poop_logs"]:
-    add_column_if_missing(table, "baby_id", "baby_id INTEGER")
-
-for table in ["milk_entries", "measurements", "pee_logs", "poop_logs"]:
-    add_column_if_missing(table, "created_by", "created_by INTEGER")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def utc_iso(value):
+    return value.replace(tzinfo=datetime.timezone.utc).isoformat() if value else None
 
 
 def hash_password(password: str) -> str:
@@ -188,7 +49,10 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    salt, expected = stored_hash.split("$", 1)
+    try:
+        salt, expected = stored_hash.split("$", 1)
+    except (AttributeError, ValueError):
+        return False
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200000)
     return hmac.compare_digest(digest.hex(), expected)
 
@@ -202,15 +66,29 @@ def create_session(db: Session, user: User):
 
 
 def serialize_baby(baby: Baby):
-    return {"id": baby.id, "name": baby.name}
+    return {"id": baby.id, "name": baby.name, "household_id": baby.household_id}
+
+
+def serialize_household(household: Household):
+    return {"id": household.id, "name": household.name}
 
 
 def get_user_babies(db: Session, user_id: int):
     return (
         db.query(Baby)
-        .join(BabyMember, BabyMember.baby_id == Baby.id)
-        .filter(BabyMember.user_id == user_id)
+        .join(HouseholdMember, HouseholdMember.household_id == Baby.household_id)
+        .filter(HouseholdMember.user_id == user_id)
         .order_by(Baby.id.asc())
+        .all()
+    )
+
+
+def get_user_households(db: Session, user_id: int):
+    return (
+        db.query(Household)
+        .join(HouseholdMember, HouseholdMember.household_id == Household.id)
+        .filter(HouseholdMember.user_id == user_id)
+        .order_by(Household.id.asc())
         .all()
     )
 
@@ -223,7 +101,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Missing login token")
     token = authorization.replace("Bearer ", "", 1)
     session = db.query(SessionToken).filter(SessionToken.token == token).first()
-    if not session:
+    if not session or session.created_at < utc_now() - datetime.timedelta(days=30):
         raise HTTPException(status_code=401, detail="Invalid login token")
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user:
@@ -238,17 +116,45 @@ def get_current_baby(
 ):
     if not x_baby_id:
         raise HTTPException(status_code=400, detail="Choose a baby first")
+    baby = db.query(Baby).filter(Baby.id == x_baby_id).first()
+    if not baby:
+        raise HTTPException(status_code=404, detail="Baby not found")
     member = (
-        db.query(BabyMember)
-        .filter(BabyMember.baby_id == x_baby_id, BabyMember.user_id == user.id)
+        db.query(HouseholdMember)
+        .filter(HouseholdMember.household_id == baby.household_id, HouseholdMember.user_id == user.id)
         .first()
     )
     if not member:
         raise HTTPException(status_code=403, detail="You do not have access to this baby")
-    baby = db.query(Baby).filter(Baby.id == x_baby_id).first()
-    if not baby:
-        raise HTTPException(status_code=404, detail="Baby not found")
     return baby
+
+
+def require_household_owner(household_id: int, user: User, db: Session):
+    member = (
+        db.query(HouseholdMember)
+        .filter(HouseholdMember.household_id == household_id, HouseholdMember.user_id == user.id)
+        .first()
+    )
+    if not member or member.role != "owner":
+        raise HTTPException(status_code=403, detail="Only a household owner can do this")
+    household = db.query(Household).filter(Household.id == household_id).first()
+    if not household:
+        raise HTTPException(status_code=404, detail="Household not found")
+    return household
+
+
+def require_household_member(household_id: int, user: User, db: Session):
+    member = (
+        db.query(HouseholdMember)
+        .filter(HouseholdMember.household_id == household_id, HouseholdMember.user_id == user.id)
+        .first()
+    )
+    if not member:
+        raise HTTPException(status_code=403, detail="You do not have access to this household")
+    household = db.query(Household).filter(Household.id == household_id).first()
+    if not household:
+        raise HTTPException(status_code=404, detail="Household not found")
+    return household
 
 
 def parse_date(value: str):
@@ -264,12 +170,12 @@ def serialize_milk_entry(entry: MilkEntry):
         "date": str(entry.date),
         "amount": entry.amount,
         "notes": entry.notes,
-        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        "created_at": utc_iso(entry.created_at),
     }
 
 
 def serialize_log(log):
-    return {"id": log.id, "created_at": log.created_at.isoformat()}
+    return {"id": log.id, "created_at": utc_iso(log.created_at)}
 
 
 @app.get("/health")
@@ -290,14 +196,24 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()
 
-    baby = Baby(name=data.baby_name.strip() or "Baby", created_by=user.id)
+    baby_name = data.baby_name.strip() or "Baby"
+    household = Household(name=data.household_name.strip() or f"{baby_name} Family", created_by=user.id)
+    db.add(household)
+    db.flush()
+    db.add(HouseholdMember(household_id=household.id, user_id=user.id, role="owner"))
+
+    baby = Baby(name=baby_name, household_id=household.id, created_by=user.id)
     db.add(baby)
     db.flush()
-    db.add(BabyMember(baby_id=baby.id, user_id=user.id, role="owner"))
     db.commit()
 
     token = create_session(db, user)
-    return {"token": token, "user": {"id": user.id, "email": user.email}, "babies": [serialize_baby(baby)]}
+    return {
+        "token": token,
+        "user": {"id": user.id, "email": user.email},
+        "babies": [serialize_baby(baby)],
+        "households": [serialize_household(household)],
+    }
 
 
 @app.post("/auth/login")
@@ -308,7 +224,13 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_session(db, user)
     babies = get_user_babies(db, user.id)
-    return {"token": token, "user": {"id": user.id, "email": user.email}, "babies": [serialize_baby(b) for b in babies]}
+    households = get_user_households(db, user.id)
+    return {
+        "token": token,
+        "user": {"id": user.id, "email": user.email},
+        "babies": [serialize_baby(b) for b in babies],
+        "households": [serialize_household(household) for household in households],
+    }
 
 
 @app.post("/auth/logout")
@@ -323,10 +245,35 @@ def logout(
     return {"message": "Logged out"}
 
 
+@app.get("/me/preferences")
+def get_preferences(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    preferences = db.get(UserPreferences, user.id)
+    return {"milk_amounts": preferences.milk_amounts if preferences else [80, 200, -50]}
+
+
+@app.put("/me/preferences")
+def save_preferences(data: PreferencesUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if any(amount == 0 for amount in data.milk_amounts):
+        raise HTTPException(status_code=422, detail="Milk button amounts must be nonzero")
+    preferences = db.get(UserPreferences, user.id)
+    if preferences is None:
+        preferences = UserPreferences(user_id=user.id)
+        db.add(preferences)
+    preferences.milk_amounts = data.milk_amounts
+    db.commit()
+    return {"milk_amounts": preferences.milk_amounts}
+
+
 @app.get("/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     babies = get_user_babies(db, user.id)
-    return {"user": {"id": user.id, "email": user.email}, "babies": [serialize_baby(b) for b in babies]}
+    households = get_user_households(db, user.id)
+    return {
+        "user": {"id": user.id, "email": user.email},
+        "milk_amounts": get_preferences(user, db)["milk_amounts"],
+        "babies": [serialize_baby(b) for b in babies],
+        "households": [serialize_household(household) for household in households],
+    }
 
 
 @app.get("/babies")
@@ -339,16 +286,140 @@ def add_baby(data: BabyCreate, user: User = Depends(get_current_user), db: Sessi
     name = data.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Baby name is required")
-    baby = Baby(name=name, created_by=user.id)
+
+    household_id = data.household_id
+    if household_id:
+        household = require_household_owner(household_id, user, db)
+    else:
+        household = Household(name=f"{name} Household", created_by=user.id)
+        db.add(household)
+        db.flush()
+        db.add(HouseholdMember(household_id=household.id, user_id=user.id, role="owner"))
+
+    baby = Baby(name=name, household_id=household.id, created_by=user.id)
     db.add(baby)
-    db.flush()
-    db.add(BabyMember(baby_id=baby.id, user_id=user.id, role="owner"))
     db.commit()
     return {"baby": serialize_baby(baby)}
 
 
+@app.put("/babies/{baby_id}")
+def update_baby(baby_id: int, data: BabyUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    baby = db.get(Baby, baby_id)
+    if not baby:
+        raise HTTPException(status_code=404, detail="Baby not found")
+    require_household_owner(baby.household_id, user, db)
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Baby name is required")
+    baby.name = name
+    db.commit()
+    return {"baby": serialize_baby(baby)}
+
+
+@app.post("/households/{household_id}/invites")
+def create_household_invite(
+    household_id: int,
+    data: InviteCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_household_owner(household_id, user, db)
+    token = secrets.token_urlsafe(24)
+    invite = HouseholdInvite(
+        household_id=household_id,
+        token=token,
+        role=data.role if data.role in ["owner", "caregiver"] else "caregiver",
+        invited_email=data.invited_email.strip().lower() or None,
+        expires_at=utc_now() + datetime.timedelta(days=7),
+        created_by=user.id,
+    )
+    db.add(invite)
+    db.commit()
+    return {
+        "token": token,
+        "join_path": f"/join/{token}",
+        "expires_at": utc_iso(invite.expires_at),
+    }
+
+
+@app.put("/households/{household_id}")
+def update_household(
+    household_id: int,
+    data: HouseholdUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    household = require_household_member(household_id, user, db)
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Household name is required")
+    household.name = name
+    db.commit()
+    return {"household": serialize_household(household)}
+
+
+@app.get("/households/{household_id}/members")
+def household_members(household_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_household_member(household_id, user, db)
+    members = db.query(HouseholdMember, User).join(User, User.id == HouseholdMember.user_id).filter(
+        HouseholdMember.household_id == household_id).order_by(HouseholdMember.id).all()
+    return {"members": [{"user_id": member.user_id, "email": account.email, "role": member.role}
+                        for member, account in members]}
+
+
+@app.get("/invites/{token}")
+def get_invite(token: str, db: Session = Depends(get_db)):
+    invite = db.query(HouseholdInvite).filter(HouseholdInvite.token == token).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    household = db.query(Household).filter(Household.id == invite.household_id).first()
+    return {
+        "household": serialize_household(household),
+        "invited_email": invite.invited_email,
+        "expires_at": utc_iso(invite.expires_at),
+        "used_at": utc_iso(invite.used_at),
+    }
+
+
+@app.post("/invites/{token}/accept")
+def accept_invite(
+    token: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invite = db.query(HouseholdInvite).filter(HouseholdInvite.token == token).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    if invite.used_at:
+        raise HTTPException(status_code=400, detail="Invite has already been used")
+    if invite.expires_at < utc_now():
+        raise HTTPException(status_code=400, detail="Invite has expired")
+    if invite.invited_email and invite.invited_email != user.email:
+        raise HTTPException(status_code=403, detail="This invite is for a different email")
+
+    claimed = db.query(HouseholdInvite).filter(
+        HouseholdInvite.id == invite.id,
+        HouseholdInvite.used_at.is_(None),
+        HouseholdInvite.expires_at >= utc_now(),
+    ).update({"used_at": utc_now()}, synchronize_session=False)
+    if claimed != 1:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Invite has already been used or expired")
+    ensure_household_member(db, invite.household_id, user.id, invite.role)
+    db.commit()
+
+    babies = get_user_babies(db, user.id)
+    households = get_user_households(db, user.id)
+    return {
+        "message": "Invite accepted",
+        "babies": [serialize_baby(baby) for baby in babies],
+        "households": [serialize_household(household) for household in households],
+        "accepted_household_id": invite.household_id,
+    }
+
+
 @app.post("/entries")
-async def add_entry(
+def add_entry(
     entry: EntryCreate,
     baby: Baby = Depends(get_current_baby),
     user: User = Depends(get_current_user),
@@ -360,7 +431,7 @@ async def add_entry(
         amount=entry.amount,
         notes=entry.notes,
         created_by=user.id,
-        created_at=datetime.datetime.utcnow(),
+        created_at=utc_now(),
     )
     db.add(new_entry)
     db.commit()
@@ -390,27 +461,43 @@ def get_day_summary(date: str, baby: Baby = Depends(get_current_baby), db: Sessi
     )
     pee_logs = db.query(PeeLog).filter(PeeLog.date == entry_date, PeeLog.baby_id == baby.id).all()
     poop_logs = db.query(PoopLog).filter(PoopLog.date == entry_date, PoopLog.baby_id == baby.id).all()
+    breastfeeding_logs = db.query(BreastfeedingLog).filter(BreastfeedingLog.date == entry_date, BreastfeedingLog.baby_id == baby.id).all()
+    goal = db.query(DailyGoal).filter(DailyGoal.date == entry_date, DailyGoal.baby_id == baby.id).first()
+    measurement = db.query(Measurement).filter(Measurement.date == entry_date, Measurement.baby_id == baby.id).first()
 
     return {
         "entries": [serialize_milk_entry(entry) for entry in entries],
         "pee_logs": [serialize_log(log) for log in pee_logs],
         "poop_logs": [serialize_log(log) for log in poop_logs],
+        "breastfeeding_logs": [serialize_log(log) for log in breastfeeding_logs],
+        "goal": goal.goal if goal else None,
+        "measurement": {"weight": measurement.weight, "height": measurement.height} if measurement else None,
     }
+
+
+@app.get("/history")
+def get_history(start_date: str, end_date: str, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
+    return history_summary(db, baby.id, start_date, end_date)
+
+
+@app.get("/exports")
+def get_export(start_date: Optional[str] = None, end_date: Optional[str] = None, format: str = "json",
+               baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
+    return export_records(db, baby, start_date, end_date, format)
 
 
 @app.put("/entries/{entry_id}")
 def update_entry(
     entry_id: int,
-    amount: float,
-    notes: str,
+    data: EntryUpdate,
     baby: Baby = Depends(get_current_baby),
     db: Session = Depends(get_db),
 ):
     entry = db.query(MilkEntry).filter(MilkEntry.id == entry_id, MilkEntry.baby_id == baby.id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    entry.amount = amount
-    entry.notes = notes
+    entry.amount = data.amount
+    entry.notes = data.notes
     db.commit()
     return {"message": "Entry updated"}
 
@@ -455,7 +542,7 @@ def add_pee_log(
     db.add(pee_log)
     db.commit()
     db.refresh(pee_log)
-    return {"message": "Pee logged", "timestamp": pee_log.created_at.isoformat()}
+    return {"message": "Pee logged", "timestamp": utc_iso(pee_log.created_at)}
 
 
 @app.post("/poop")
@@ -469,7 +556,7 @@ def add_poop_log(
     db.add(poop_log)
     db.commit()
     db.refresh(poop_log)
-    return {"message": "Poop logged", "timestamp": poop_log.created_at.isoformat()}
+    return {"message": "Poop logged", "timestamp": utc_iso(poop_log.created_at)}
 
 
 @app.get("/pee/{date}")
@@ -506,6 +593,33 @@ def delete_poop(entry_id: int, baby: Baby = Depends(get_current_baby), db: Sessi
     return {"message": f"Poop entry {entry_id} deleted"}
 
 
+@app.post("/breastfeeding")
+def add_breastfeeding_log(data: DateOnly, baby: Baby = Depends(get_current_baby),
+                          user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    log = BreastfeedingLog(baby_id=baby.id, date=parse_date(data.date), created_by=user.id)
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return {"message": "Breastfeeding logged", "timestamp": utc_iso(log.created_at)}
+
+
+@app.get("/breastfeeding/{date}")
+def get_breastfeeding_logs(date: str, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
+    logs = db.query(BreastfeedingLog).filter(BreastfeedingLog.baby_id == baby.id,
+                                           BreastfeedingLog.date == parse_date(date)).order_by(BreastfeedingLog.created_at.desc()).all()
+    return {"logs": [serialize_log(log) for log in logs]}
+
+
+@app.delete("/breastfeeding/{entry_id}")
+def delete_breastfeeding_log(entry_id: int, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
+    log = db.query(BreastfeedingLog).filter(BreastfeedingLog.id == entry_id, BreastfeedingLog.baby_id == baby.id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Breastfeeding entry not found")
+    db.delete(log)
+    db.commit()
+    return {"message": "Breastfeeding entry deleted"}
+
+
 @app.post("/measurements")
 def add_or_update_measurement(
     measurement: MeasurementCreate,
@@ -534,3 +648,14 @@ def add_or_update_measurement(
 
     db.commit()
     return {"message": message}
+
+
+@app.get("/measurements/{date}")
+def get_measurement(date: str, baby: Baby = Depends(get_current_baby), db: Session = Depends(get_db)):
+    entry = db.query(Measurement).filter(
+        Measurement.date == parse_date(date), Measurement.baby_id == baby.id
+    ).first()
+    return {"measurement": {
+        "id": entry.id, "date": str(entry.date), "weight": entry.weight,
+        "height": entry.height, "created_at": utc_iso(entry.created_at),
+    } if entry else None}

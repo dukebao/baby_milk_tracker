@@ -1,27 +1,36 @@
 import { useState } from "react";
 import { apiRequest } from "../api";
+import { googleEnabled } from "../supabase";
 
 export default function LoginPage({ onLogin }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [babyName, setBabyName] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isRegistering = mode === "register";
+  const isResetting = mode === "reset";
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
+    setMessage("");
     setIsSubmitting(true);
 
     try {
+      if (isResetting) {
+        await apiRequest("/auth/reset", { method: "POST", body: { email } });
+        setMessage("If an account exists for this email, you'll receive a password reset link.");
+        return;
+      }
       const data = await apiRequest(isRegistering ? "/auth/register" : "/auth/login", {
         method: "POST",
-        body: isRegistering ? { email, password, baby_name: babyName } : { email, password },
+        body: { email, password },
       });
-      onLogin(data);
+      if (data.confirmation_required) setMessage("Check your email to confirm your account, then sign in.");
+      else onLogin(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -31,7 +40,7 @@ export default function LoginPage({ onLogin }) {
 
   return (
     <div className="app-shell">
-      <main className="app-page auth-page">
+      <main className="app-page auth-page interactive-page">
         <section className="hero-panel">
           <div className="page-header">
             <div className="kicker">Private family tracker</div>
@@ -58,8 +67,9 @@ export default function LoginPage({ onLogin }) {
                 </button>
               </div>
 
-              <label className="form-label mt-3">Email</label>
+              <label className="form-label mt-3" htmlFor="login-email">Email</label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -68,8 +78,9 @@ export default function LoginPage({ onLogin }) {
                 required
               />
 
-              <label className="form-label mt-3">Password</label>
+              {!isResetting && <><label className="form-label mt-3" htmlFor="login-password">Password</label>
               <input
+                id="login-password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -77,26 +88,20 @@ export default function LoginPage({ onLogin }) {
                 autoComplete={isRegistering ? "new-password" : "current-password"}
                 minLength="6"
                 required
-              />
-
-              {isRegistering && (
-                <>
-                  <label className="form-label mt-3">Baby name</label>
-                  <input
-                    type="text"
-                    value={babyName}
-                    onChange={(event) => setBabyName(event.target.value)}
-                    className="form-control"
-                    placeholder="Baby"
-                  />
-                </>
-              )}
+              /></>}
 
               {error && <div className="alert alert-danger mt-3 mb-0">{error}</div>}
+              {message && <p className="mt-3" role="status">{message}</p>}
 
               <button type="submit" className="btn btn-dark w-100 mt-4" disabled={isSubmitting}>
-                {isSubmitting ? "Please wait..." : isRegistering ? "Create Account" : "Login"}
+                {isSubmitting ? "Please wait..." : isResetting ? "Send reset link" : isRegistering ? "Create Account" : "Login"}
               </button>
+              {!isResetting && <button type="button" className="btn btn-link w-100 mt-2" onClick={() => { setMode("reset"); setError(""); setMessage(""); }}>Forgot password?</button>}
+              {googleEnabled && <button type="button" className="btn btn-outline-dark w-100 mt-3" disabled={isSubmitting} onClick={async () => {
+                setError(""); setIsSubmitting(true);
+                try { await apiRequest("/auth/google", { method: "POST" }); }
+                catch (err) { setError(err.message); setIsSubmitting(false); }
+              }}>Continue with Google</button>}
             </form>
           </div>
         </section>

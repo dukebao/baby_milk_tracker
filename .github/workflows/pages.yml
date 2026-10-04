@@ -1,0 +1,69 @@
+name: Deploy tracker to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_SUPABASE_URL: ${{ vars.REACT_APP_SUPABASE_URL }}
+      REACT_APP_SUPABASE_PUBLISHABLE_KEY: ${{ vars.REACT_APP_SUPABASE_PUBLISHABLE_KEY }}
+      REACT_APP_GOOGLE_LOGIN: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check browser configuration
+        run: |
+          node <<'NODE'
+          let validUrl = false;
+          try { validUrl = new URL(process.env.REACT_APP_SUPABASE_URL).protocol === 'https:'; } catch {}
+          if (!validUrl || !process.env.REACT_APP_SUPABASE_PUBLISHABLE_KEY?.startsWith('sb_publishable_')) {
+            console.error('Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_PUBLISHABLE_KEY in repository Actions variables. Use the publishable key, never a secret key.');
+            process.exit(1);
+          }
+          NODE
+      - uses: actions/configure-pages@v5
+        id: pages
+      - run: npm ci
+      - name: Test frontend
+        run: npm test -- --watchAll=false --runInBand
+      - name: Build frontend
+        run: npm run build
+        env:
+          PUBLIC_URL: ${{ steps.pages.outputs.base_path }}
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: frontend/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

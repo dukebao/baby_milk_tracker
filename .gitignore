@@ -7,6 +7,7 @@
 
 # all node modules
 package-lock.json
+!frontend/package-lock.json
 # Ignore all node_modules folders
 node_modules/
 frontend/node_modules/
@@ -37,6 +38,8 @@ yarn-error.log*
 
 # local env files
 .env
+google_project_json
+client_secret*.json
 
 # Ignore compiled Python files
 __pycache__/
@@ -44,3 +47,8 @@ __pycache__/
 
 # remove .db files
 *.db
+.venv/
+*.db-wal
+*.db-shm
+.pytest_cache/
+frontend/review-artifacts/

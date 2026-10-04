@@ -1,0 +1,99 @@
+/* Shared visual affordances for the calendar, tracker, and sign-in screens. */
+.interactive-page {
+  --field-surface: #fff;
+  --field-border: #a68b90;
+  --field-disabled: #eee8e5;
+  --button-surface: #fce9e4;
+  --button-border: #b15b66;
+  --button-text: #943646;
+  --button-hover: #f6d8d1;
+  --primary-surface: #b94155;
+  --primary-text: #fff;
+  --pee-surface: #fff1bd;
+  --pee-border: #a88532;
+  --poop-surface: #ece3fa;
+  --poop-border: #8f78ae;
+  --feed-surface: #def3e9;
+  --feed-border: #548a73;
+  --danger-surface: #b82f46;
+  --danger-text: #fff;
+}
+[data-theme="dark"] .interactive-page {
+  --field-surface: #171c26;
+  --field-border: #73798c;
+  --field-disabled: #252a36;
+  --button-surface: #303444;
+  --button-border: #b67b92;
+  --button-text: #f4b6c2;
+  --button-hover: #424156;
+  --primary-surface: #f29cac;
+  --primary-text: #24151c;
+  --pee-surface: #403822;
+  --pee-border: #b69b54;
+  --poop-surface: #343044;
+  --poop-border: #a08bbb;
+  --feed-surface: #253c36;
+  --feed-border: #76ad95;
+  --danger-surface: #633440;
+  --danger-text: #ffdde4;
+}
+.interactive-page .btn {
+  border: 2px solid var(--button-border) !important;
+  border-radius: 12px !important;
+  padding: 10px 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(40, 25, 30, .12);
+}
+.interactive-page .btn-outline-dark {
+  background: var(--button-surface) !important;
+  color: var(--button-text) !important;
+}
+.interactive-page .btn-outline-dark:hover:not(:disabled):not(.disabled) { background: var(--button-hover) !important; }
+.interactive-page .btn-dark, .interactive-page .btn-primary {
+  background: var(--primary-surface) !important;
+  color: var(--primary-text) !important;
+  border-color: var(--primary-surface) !important;
+}
+.interactive-page .btn-warning { background: var(--pee-surface) !important; border-color: var(--pee-border) !important; }
+.interactive-page .btn-secondary { background: var(--poop-surface) !important; border-color: var(--poop-border) !important; }
+.interactive-page .btn-success { background: var(--feed-surface) !important; border-color: var(--feed-border) !important; }
+.interactive-page .btn-danger { background: var(--danger-surface) !important; color: var(--danger-text) !important; border-color: var(--danger-surface) !important; }
+.interactive-page .btn:focus-visible { outline: 3px solid var(--button-border); outline-offset: 3px; }
+.interactive-page .btn:active:not(:disabled):not(.disabled) { transform: translateY(1px); box-shadow: none; }
+.interactive-page .btn:disabled, .interactive-page .btn.disabled { opacity: .5; cursor: not-allowed; box-shadow: none; transform: none; }
+.interactive-page .btn-link { background: var(--button-surface) !important; color: var(--button-text) !important; text-decoration: none; }
+.interactive-page .form-label { font-weight: 700; margin-bottom: 8px; }
+.interactive-page .form-control {
+  background: var(--field-surface);
+  color: var(--ink);
+  border: 2px solid var(--field-border);
+  border-radius: 12px !important;
+  padding: 12px 14px;
+}
+.interactive-page .form-control::placeholder { color: var(--muted); opacity: 1; }
+.interactive-page .form-control:focus {
+  background: var(--field-surface);
+  color: var(--ink);
+  border-color: var(--button-border);
+  outline: 2px solid var(--button-border);
+  outline-offset: 2px;
+  box-shadow: none !important;
+}
+.interactive-page .form-control:disabled { background: var(--field-disabled); border-color: var(--soft-border); color: var(--muted); cursor: not-allowed; }
+.interactive-page .calendar-day.btn-outline-dark { background: var(--field-surface) !important; border-color: var(--field-border) !important; box-shadow: none; }
+.interactive-page .calendar-day.btn-outline-dark:hover:not(:disabled) { background: var(--button-hover) !important; border-color: var(--button-border) !important; }
+.interactive-page .calendar-empty { background: transparent; }
+.interactive-page .calendar-day { padding: 0 !important; min-height: 38px; }
+.interactive-page .calendar-toolbar .btn, .interactive-page .day-navigation .btn { min-width: 48px; }
+.interactive-page .entry-field { min-width: 0; }
+.interactive-page .custom-entry-grid { align-items: end; }
+.interactive-page .stat-card, .interactive-page .weekly-row { box-shadow: none; }
+.interactive-page .log-actions .btn { min-height: 44px; padding: 8px 12px; }
+@media (max-width: 420px) {
+  .interactive-page .calendar-day { min-height: 34px; }
+  .interactive-page .log-actions { width: 100%; }
+  .interactive-page .log-actions .btn { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .interactive-page .btn { transition: none; }
+}
