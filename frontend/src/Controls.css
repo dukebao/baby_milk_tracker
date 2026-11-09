@@ -91,8 +91,6 @@
 .interactive-page .log-actions .btn { min-height: 44px; padding: 8px 12px; }
 @media (max-width: 420px) {
   .interactive-page .calendar-day { min-height: 34px; }
-  .interactive-page .log-actions { width: 100%; }
-  .interactive-page .log-actions .btn { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .interactive-page .btn { transition: none; }

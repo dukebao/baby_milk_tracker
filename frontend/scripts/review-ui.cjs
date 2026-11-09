@@ -69,6 +69,13 @@ function sampleApi(projectRef) {
       if (options.method === "POST") {
         const record = { ...row, id: tables[table].length + 1, ...body };
         tables[table].push(record); result = [record];
+      } else if (options.method === "PATCH") {
+        if (body.created_at && sessionStorage.getItem("review-deny-time-save") === "true") {
+          return new Response(JSON.stringify({ code: "42501", message: `permission denied for table ${table}` }), { status: 403, headers: { "Content-Type": "application/json" } });
+        }
+        const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+        result = (tables[table] || []).filter((record) => String(record.id) === id);
+        result.forEach((record) => Object.assign(record, body));
       } else result = tables[table] || [];
     }
     if (single && Array.isArray(result)) result = result[0] || {};
@@ -132,9 +139,29 @@ function sampleApi(projectRef) {
       await screenshot("review-failure.png");
       throw new Error(`UI did not become ready: ${expression}\n${await evaluate("document.body.innerText.slice(0, 1600)")}\nRuntime errors: ${JSON.stringify(errors)}`);
     };
-    const click = (text) => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === ${JSON.stringify(text)})?.click()`);
+    const click = (text) => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.getAttribute('aria-label') === ${JSON.stringify(text)} || button.textContent.trim() === ${JSON.stringify(text)})?.click()`);
     const screenshot = async (name) => { const result = await command("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(path.join(folder, name), Buffer.from(result.data, "base64")); };
     const noOverflow = async () => assert(await evaluate("document.documentElement.scrollWidth <= innerWidth"), "Page overflows horizontally");
+    const stableLogActions = async (width) => {
+      const rows = await evaluate(`Array.from(document.querySelectorAll('.log-item')).map(row => {
+        const actions = row.querySelector('.log-actions');
+        if (!actions) return null;
+        const bounds = row.getBoundingClientRect();
+        const buttons = actions.getBoundingClientRect();
+        const content = row.querySelector('.log-main').getBoundingClientRect();
+        return {
+          label: row.querySelector('.log-title').textContent,
+          placement: buttons.top >= content.bottom ? 'below' : 'beside',
+          left: buttons.left - bounds.left,
+          right: bounds.right - buttons.right,
+          contained: buttons.left >= bounds.left && buttons.right <= bounds.right && bounds.left >= 0 && bounds.right <= innerWidth,
+          textContained: content.right <= bounds.right && row.querySelector('.log-main').scrollWidth <= row.querySelector('.log-main').clientWidth,
+        };
+      }).filter(Boolean)`);
+      assert(rows.length >= 3, "Button layout review needs several log types");
+      assert(rows.every(row => row.contained && row.textContained), `Log controls overflow at ${width}px: ${JSON.stringify(rows)}`);
+      assert(rows.every(row => row.placement === rows[0].placement && Math.abs(row.left - rows[0].left) < 1 && Math.abs(row.right - rows[0].right) < 1), `Log button positions vary with entry text at ${width}px: ${JSON.stringify(rows)}`);
+    };
     await command("Runtime.enable"); await command("Page.enable");
     await command("Page.addScriptToEvaluateOnNewDocument", { source: `(${sampleApi.toString()})(${JSON.stringify(projectRef)});` });
     await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -163,6 +190,35 @@ function sampleApi(projectRef) {
     assert(await evaluate("!document.querySelector('[aria-label=\"Delete breastfeeding entry 1\"]').closest('li').innerText.includes('ml')"), "Breastfeeding incorrectly shows an amount");
     assert(await evaluate("document.querySelector('.stat-value').textContent.trim() === '120 ml'"), "Breastfeeding changed milk total");
     await noOverflow(); await screenshot("phone-tracker.png");
+    await click("Poop"); await waitFor("document.body.innerText.includes('Poop saved.')");
+    for (const type of ["milk", "pee", "poop", "breastfeeding"]) {
+      const edit = `[aria-label="Edit ${type} entry 1"]`;
+      await waitFor(`document.querySelector(${JSON.stringify(edit)})?.disabled === false`);
+      await evaluate(`document.querySelector(${JSON.stringify(edit)}).click()`);
+      await waitFor("!!document.getElementById('log-time')");
+      const time = await evaluate("document.getElementById('log-time').value === '08:15' ? '08:16' : '08:15'");
+      await evaluate(`(() => { const input = document.getElementById('log-time'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, ${JSON.stringify(time)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      assert(await evaluate("(() => { const form = document.querySelector('.log-edit-form'); const rect = form.getBoundingClientRect(); const row = form.closest('.log-item').getBoundingClientRect(); return rect.left >= row.left && rect.right <= row.right && form.scrollWidth <= form.clientWidth; })()"), `${type} time editor overflows its log row`);
+      if (type === "milk") {
+        await evaluate("document.querySelector('.log-edit-form').scrollIntoView({ block: 'center' })");
+        await waitFor("(() => { const rect = document.querySelector('.log-edit-form').getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; })()");
+        await noOverflow(); await screenshot("phone-log-time-editor.png");
+      }
+      if (type === "milk") {
+        await evaluate("sessionStorage.setItem('review-deny-time-save', 'true')");
+        await click("Save entry");
+        await waitFor("document.querySelector('.log-edit-form [role=alert]')?.textContent.includes(\"Time changes aren't enabled yet\")");
+        assert(await evaluate(`document.getElementById('log-time').value === ${JSON.stringify(time)}`), "Denied time correction lost its draft");
+        assert(await evaluate(`document.querySelector(${JSON.stringify(edit)}) === null`), "Denied time correction closed the editor");
+        await evaluate("sessionStorage.removeItem('review-deny-time-save')");
+      }
+      await click("Save entry");
+      await waitFor("!document.getElementById('log-time') && document.body.innerText.includes('entry updated.')");
+      assert(await evaluate("document.querySelector('.stat-value').textContent.trim() === '120 ml'"), "Time correction changed milk total");
+      await evaluate(`document.querySelector(${JSON.stringify(edit)}).click()`);
+      assert(await evaluate(`document.getElementById('log-time').value === ${JSON.stringify(time)}`), `${type} time correction did not persist after refresh`);
+      await click("Cancel edit");
+    }
     assert(await evaluate("getComputedStyle(document.querySelector('.quick-actions .btn-success')).borderTopWidth === '2px'"), "Feed action blends into informational cards");
     assert(await evaluate("getComputedStyle(document.getElementById('custom-amount')).borderTopWidth === '2px'"), "Milk input lacks a visible border");
     assert(await evaluate("!document.querySelector('label[for=custom-amount]').classList.contains('visually-hidden')"), "Custom milk field label is hidden");
@@ -180,6 +236,14 @@ function sampleApi(projectRef) {
     await evaluate("document.querySelector('[aria-label=\"Delete milk entry 1\"]').click()");
     await waitFor("document.body.innerText.includes('Confirm delete')");
     await click("Keep record");
+    for (const width of [320, 390, 420, 421, 480, 600, 820, 1280]) {
+      await command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 821 });
+      await stableLogActions(width);
+      if (width === 390 || width === 480) {
+        await evaluate("window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })");
+        await screenshot(`log-buttons-${width}.png`);
+      }
+    }
     await command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     await noOverflow(); await screenshot("desktop-tracker.png");
     await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -227,7 +291,7 @@ function sampleApi(projectRef) {
       assert(await evaluate("!location.hash.includes('access_token')"), "OAuth callback fragment was not processed");
     }
     assert.deepStrictEqual(errors, [], "Browser runtime errors");
-    console.log("Browser checks passed: phone/desktop layouts, visible Settings controls, shared preferences, light/dark modes, first-login setup and saved completion, caregiver controls, and tracking. Supabase requests use sample records only.");
+    console.log("Browser checks passed: phone/desktop layouts, visible Settings controls, shared preferences, light/dark modes, first-login setup and saved completion, caregiver controls, tracking, time corrections for all four log types, and consistent log button alignment at eight screen widths. Supabase requests use sample records only.");
     console.log(`Screenshots: ${folder}`);
   } finally { socket?.close(); browser.kill(); preview?.close(); }
 })().catch((error) => { console.error(error.message); process.exitCode = 1; });

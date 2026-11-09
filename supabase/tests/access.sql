@@ -15,6 +15,8 @@ select (public.tracker_create_invite(:'family','caregiver@example.com')->>'join_
 select split_part(:'invitation','/',3) as invite_token \gset
 insert into public.tracker_milk_entries(baby_id,date,amount,notes) values(:'baby','2026-10-03',80,'Breakfast');
 insert into public.tracker_breastfeeding_logs(baby_id,date) values(:'baby','2026-10-03');
+insert into public.tracker_pee_logs(baby_id,date) values(:'baby','2026-10-03');
+insert into public.tracker_poop_logs(baby_id,date) values(:'baby','2026-10-03');
 insert into public.tracker_daily_goals(baby_id,date,goal) values(:'baby','2026-10-03',800)
  on conflict(baby_id,date) do update set baby_id=excluded.baby_id,date=excluded.date,goal=excluded.goal;
 insert into public.tracker_daily_goals(baby_id,date,goal) values(:'baby','2026-10-03',900)
@@ -36,9 +38,14 @@ do $$ begin
 end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',true);
 select public.tracker_initialize();
-do $$ begin
+do $$ declare suffix text; changed integer; begin
  assert (select count(*) from public.tracker_milk_entries)=0,'Other family records exposed';
  assert (select count(*) from public.tracker_breastfeeding_logs)=0,'Other family breastfeeding exposed';
+ foreach suffix in array array['milk_entries','pee_logs','poop_logs','breastfeeding_logs'] loop
+  execute format('update public.tracker_%I set created_at=''2026-10-03T08:15:00Z''',suffix);
+  get diagnostics changed = row_count;
+  assert changed=0,'Other family log times can be changed';
+ end loop;
 end $$;
 select set_config('tracker.test_invite',:'invite_token',true);
 select set_config('tracker.test_baby',:'baby',true);
@@ -56,7 +63,7 @@ end $$;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
 select public.tracker_accept_invite(:'invite_token');
 select public.tracker_initialize();
-do $$ begin
+do $$ declare suffix text; changed integer; correct boolean; begin
  assert (select count(*) from public.tracker_babies)=1,'Caregiver has orphan initial family';
  assert (select count(*) from public.tracker_milk_entries)=1,'Shared records unavailable';
  assert (select count(*) from public.tracker_members(current_setting('tracker.test_family')::uuid))=2,'Member list incorrect';
@@ -73,6 +80,21 @@ do $$ begin
  assert not exists(select 1 from public.tracker_households where name='Unauthorized'),'Caregiver renamed household';
  update public.tracker_milk_entries set amount=100;
  assert (select amount from public.tracker_milk_entries)=100,'Caregiver edit failed';
+ foreach suffix in array array['milk_entries','pee_logs','poop_logs','breastfeeding_logs'] loop
+  execute format('update public.tracker_%I set created_at=''2026-10-03T08:15:00Z''',suffix);
+  get diagnostics changed = row_count;
+  assert changed=1,'Caregiver could not correct a log time';
+  execute format('select bool_and(created_at=''2026-10-03T08:15:00Z''::timestamptz and date=''2026-10-03''::date and created_by=''00000000-0000-0000-0000-000000000001''::uuid) from public.tracker_%I',suffix) into correct;
+  assert correct,'Time correction changed the date or author';
+  begin
+   execute format('update public.tracker_%I set created_by=auth.uid()',suffix);
+   raise exception 'Caregiver can change the log author'; exception when insufficient_privilege then null;
+  end;
+  begin
+   execute format('update public.tracker_%I set date=''2026-10-04''',suffix);
+   raise exception 'Time edit permissions allow moving dates'; exception when insufficient_privilege then null;
+  end;
+ end loop;
  delete from public.tracker_breastfeeding_logs;
  assert (select count(*) from public.tracker_breastfeeding_logs)=0,'Caregiver delete failed';
 end $$;

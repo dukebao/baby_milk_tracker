@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
 import { apiRequest } from "../api";
-import { localDate, shiftDate, parseLocalDate, formatDate } from "../dates";
+import { localDate, localTime, logTimeToISO, shiftDate, parseLocalDate, formatDate } from "../dates";
 import MilkAmountButtons from "./MilkAmountButtons";
+
+const LOG_EMOJIS = { Milk: "🍼", Pee: "💧", Poop: "💩", Breastfeeding: "🤱" };
 
 export default function BabyMilkTracker(props) {
   const { date } = useParams();
@@ -24,6 +26,8 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
   const [editingLog, setEditingLog] = useState(null);
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [editError, setEditError] = useState("");
   const [deleteLog, setDeleteLog] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [goalDraft, setGoalDraft] = useState("");
@@ -62,7 +66,7 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
     };
   }, [refreshLogs]);
 
-  const runAction = async (action, message) => {
+  const runAction = async (action, message, onError = setError) => {
     if (actionLock.current) return;
     actionLock.current = true;
     setIsSaving(true); setError(""); setStatus("");
@@ -71,7 +75,7 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
       setStatus(message);
       const refreshed = await refreshLogs();
       if (!refreshed) setError("Saved, but the latest records could not be loaded. Use Refresh to check them.");
-    } catch (err) { setError(err.message); }
+    } catch (err) { onError(err.message); }
     finally { actionLock.current = false; setIsSaving(false); }
   };
 
@@ -104,6 +108,33 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
   };
   const formatTime = (value) => value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Time unavailable";
 
+  const saveLog = (event, log) => {
+    event.preventDefault();
+    setEditError("");
+    if (!editTime) { setEditError("Enter a valid time."); return; }
+    const body = {};
+    if (log.type === "Milk") {
+      const amount = Number(editAmount);
+      if (!Number.isFinite(amount) || (amount === 0 && !editNote.trim())) { setEditError("Enter an amount or note."); return; }
+      Object.assign(body, { amount, notes: editNote.trim() });
+    }
+    // Keep the original timestamp (including seconds) when only amount/note changes.
+    if (editTime !== localTime(log.created_at)) {
+      const timestamp = logTimeToISO(date, editTime);
+      if (!timestamp) { setEditError("Enter a valid time for this date."); return; }
+      body.created_at = timestamp;
+    }
+    if (!Object.keys(body).length) { setEditingLog(null); return; }
+    runAction(async () => {
+      await apiRequest(`/${log.endpoint}/${log.id}`, { ...requestOptions, method: "PUT", body });
+      setEditingLog(null);
+    }, `${log.type} entry updated.`, (message) => setEditError(
+      body.created_at && /permission denied/i.test(message)
+        ? "Time changes aren't enabled yet. This entry has not been changed."
+        : message
+    ));
+  };
+
   return <main className="app-page interactive-page"><section className="hero-panel">
     <header className="tracker-header compact-header">
       <div className="top-bar">
@@ -122,9 +153,9 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
       <section className="soft-card full">
         <h2 className="section-title">Daily summary</h2>
         <div className="stat-grid">
-          <div className="stat-card"><div className="stat-value">{day ? total : "—"}<small> ml</small></div><div className="stat-label">Milk</div></div>
-          <div className="stat-card"><div className="stat-value">{day ? day.pee_logs.length : "—"}</div><div className="stat-label">Pee</div></div>
-          <div className="stat-card"><div className="stat-value">{day ? day.poop_logs.length : "—"}</div><div className="stat-label">Poop</div></div>
+          <div className="stat-card"><div className="stat-value">{day ? total : "—"}<small> ml</small></div><div className="stat-label"><span aria-hidden="true">🍼</span> Milk</div></div>
+          <div className="stat-card"><div className="stat-value">{day ? day.pee_logs.length : "—"}</div><div className="stat-label"><span aria-hidden="true">💧</span> Pee</div></div>
+          <div className="stat-card"><div className="stat-value">{day ? day.poop_logs.length : "—"}</div><div className="stat-label"><span aria-hidden="true">💩</span> Poop</div></div>
         </div>
         {day && <p className="small mt-3 mb-0"><span aria-hidden="true">🤱</span> Breastfeeds: {(day.breastfeeding_logs || []).length}</p>}
         {day?.goal && <div className="goal-progress mt-3"><div className="small mb-1">Your daily goal: {total} / {day.goal} ml</div>
@@ -135,7 +166,7 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
       <section className="soft-card full">
         <h2 className="section-title">Add entry</h2>
         <div className="quick-actions">
-          {["Pee", "Poop"].map((type) => <button key={type} className={`btn ${type === "Pee" ? "btn-warning" : "btn-secondary"}`} type="button" disabled={busy} onClick={() => runAction(() => apiRequest(`/${type.toLowerCase()}`, { ...requestOptions, method: "POST", body: { date } }), `${type} saved.`)}>{type}</button>)}
+          {["Pee", "Poop"].map((type) => <button key={type} className={`btn ${type === "Pee" ? "btn-warning" : "btn-secondary"}`} type="button" aria-label={type} disabled={busy} onClick={() => runAction(() => apiRequest(`/${type.toLowerCase()}`, { ...requestOptions, method: "POST", body: { date } }), `${type} saved.`)}><span aria-hidden="true">{LOG_EMOJIS[type]}</span> {type}</button>)}
           <button className="btn btn-success breastfeed-action" type="button" aria-label="Log breastfeeding" disabled={busy} onClick={() => runAction(() => apiRequest("/breastfeeding", { ...requestOptions, method: "POST", body: { date } }), "Breastfeeding time saved.")}>
             <span className="breastfeed-icon" aria-hidden="true">🤱</span><span>Breastfeed</span>
           </button>
@@ -177,19 +208,21 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
           <button className="btn btn-outline-dark btn-sm" type="button" disabled={busy} onClick={() => refreshLogs({ showLoading: !day })}>Refresh logs</button></div>
         {isLoading ? <div className="empty-state">Loading…</div> : !day ? <div className="empty-state">Reconnect to load records.</div> : !logs.length ? <div className="empty-state">No logs for this date yet.</div> : <ul className="log-list">
           {logs.map((log) => <li key={logKey(log)} className="log-item">
-            <div className="log-main"><span className="log-title">{formatTime(log.created_at)} · {log.type}{log.type === "Milk" ? ` · ${log.amount} ml` : ""}</span>{log.notes && <small className="log-note">{log.notes}</small>}</div>
-            {editingLog === logKey(log) ? <form className="log-edit-form" onSubmit={(event) => {
-              event.preventDefault();
-              const amount = Number(editAmount);
-              if (!Number.isFinite(amount) || (amount === 0 && !editNote.trim())) { setError("Enter an amount or note."); return; }
-              runAction(async () => {
-                await apiRequest(`/entries/${log.id}`, { ...requestOptions, method: "PUT", body: { amount, notes: editNote.trim() } });
-                setEditingLog(null);
-              }, "Milk entry updated.");
-            }}>
-              <label>Amount (ml)<input className="form-control" type="number" step="any" required value={editAmount} onChange={(event) => setEditAmount(event.target.value)} disabled={isSaving} /></label>
-              <label>Note<input className="form-control" value={editNote} onChange={(event) => setEditNote(event.target.value)} disabled={isSaving} /></label>
-              <div className="d-flex gap-2"><button className="btn btn-success" disabled={isSaving}>Save entry</button><button className="btn btn-outline-dark" type="button" disabled={isSaving} onClick={() => setEditingLog(null)}>Cancel edit</button></div>
+            <div className="log-main">
+              <time className="log-time" dateTime={log.created_at}>{formatTime(log.created_at)}</time>
+              <span className="log-title"><span aria-hidden="true">{LOG_EMOJIS[log.type]}</span> {log.type}{log.type === "Milk" ? ` - ${log.amount} ml` : ""}</span>
+              {log.notes && <small className="log-note">{log.notes}</small>}
+            </div>
+            {editingLog === logKey(log) ? <form className="log-edit-form" onSubmit={(event) => saveLog(event, log)}>
+              <label htmlFor="log-time">Time</label>
+              <input id="log-time" className="form-control" type="time" required aria-describedby="log-time-help" value={editTime} onChange={(event) => setEditTime(event.target.value)} disabled={isSaving} />
+              <small id="log-time-help" className="text-muted">When this happened on {formatDate(date)}, in your local time.</small>
+              {log.type === "Milk" && <>
+                <label>Amount (ml)<input className="form-control" type="number" step="any" required value={editAmount} onChange={(event) => setEditAmount(event.target.value)} disabled={isSaving} /></label>
+                <label>Note<input className="form-control" value={editNote} onChange={(event) => setEditNote(event.target.value)} disabled={isSaving} /></label>
+              </>}
+              {editError && <div className="alert alert-danger mb-0" role="alert">{editError}</div>}
+              <div className="d-flex flex-wrap gap-2"><button className="btn btn-success" disabled={isSaving}>Save entry</button><button className="btn btn-outline-dark" type="button" disabled={isSaving} onClick={() => setEditingLog(null)}>Cancel edit</button></div>
             </form> : deleteLog === logKey(log) ? <div className="delete-confirmation">
               <p className="small mb-2">Delete this {log.type.toLowerCase()} record? This cannot be undone.</p>
               <div className="d-flex gap-2"><button className="btn btn-danger btn-sm" type="button" disabled={isSaving} onClick={() => runAction(async () => {
@@ -197,7 +230,7 @@ function TrackerDay({ auth, selectedBaby, onOpenSettings, date }) {
               }, "Record deleted.")}>Confirm delete</button>
               <button className="btn btn-outline-dark btn-sm" type="button" disabled={isSaving} onClick={() => setDeleteLog(null)}>Keep record</button></div>
             </div> : <div className="log-actions">
-              {log.type === "Milk" && <button className="btn btn-outline-dark btn-sm" type="button" disabled={isSaving} aria-label={`Edit milk entry ${log.id}`} onClick={() => { setEditingLog(logKey(log)); setDeleteLog(null); setEditAmount(String(log.amount)); setEditNote(log.notes || ""); }}>Edit</button>}
+              <button className="btn btn-outline-dark btn-sm" type="button" disabled={isSaving} aria-label={`Edit ${log.type.toLowerCase()} entry ${log.id}`} onClick={() => { setEditingLog(logKey(log)); setDeleteLog(null); setEditAmount(String(log.amount ?? "")); setEditNote(log.notes || ""); setEditTime(localTime(log.created_at)); setEditError(""); setError(""); setStatus(""); }}>Edit</button>
               <button className="btn btn-outline-dark btn-sm" type="button" disabled={isSaving} aria-label={`Delete ${log.type.toLowerCase()} entry ${log.id}`} onClick={() => { setDeleteLog(logKey(log)); setEditingLog(null); }}>Delete</button>
             </div>}
           </li>)}

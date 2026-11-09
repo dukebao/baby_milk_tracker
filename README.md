@@ -16,7 +16,7 @@ This URL becomes available after the first successful Pages deployment.
 - Track bottle feeds in ml, breastfeeding by timestamp, and pee/poop events.
 - Edit and save three milk amount buttons as account preferences.
 - Browse daily records and weekly totals through the calendar.
-- Track daily goals and measurements; edit or delete log entries.
+- Track daily goals and measurements; edit or delete log entries, including event times.
 - Manage babies and household details in Settings. Owners can invite caregivers
   with single-use links that expire after seven days, optionally bound to email.
 - Switch light/dark appearance in Settings, saved on the current device.
@@ -39,8 +39,10 @@ This URL becomes available after the first successful Pages deployment.
 
 Follow [the setup guide](supabase/README.md). Run
 [supabase/migrations/202610040001_tracker.sql](supabase/migrations/202610040001_tracker.sql)
-and [the household setup update](supabase/migrations/202610040002_household_setup.sql)
-in your project's SQL Editor, in that order, before signing in.
+and [the household setup update](supabase/migrations/202610040002_household_setup.sql),
+then [the log time update](supabase/migrations/202611090001_log_times.sql)
+in your project's SQL Editor, in that order, before signing in. Existing installations
+only need to run the new log time update to enable saving corrected times.
 
 Copy `frontend/.env.example` to `frontend/.env.local` and fill in:
 

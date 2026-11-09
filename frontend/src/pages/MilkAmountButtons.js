@@ -56,8 +56,8 @@ export default function MilkAmountButtons({ token, onAddEntry, amounts: provided
       </div>
       {!editorOnly && <div className="milk-amount-actions">
         {amounts ? amounts.map((amount, index) => (
-          <button key={index} className={`btn ${amount < 0 ? "btn-danger" : "btn-dark"}`} type="button" disabled={disabled} onClick={() => onAddEntry(amount)}>
-            {amount} ml
+          <button key={index} className={`btn milk-preset-button ${amount < 0 ? "btn-danger" : "btn-dark"}`} type="button" disabled={disabled} onClick={() => onAddEntry(amount)}>
+            <span aria-hidden="true">🍼</span><span>{amount} ml</span>
           </button>
         )) : <span role="status">{error ? "Milk buttons unavailable." : "Loading milk buttons..."}</span>}
       </div>}

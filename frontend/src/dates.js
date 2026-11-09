@@ -10,6 +10,23 @@ export function parseLocalDate(value) {
   return localDate(date) === value ? date : null;
 }
 
+export function localTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+// A corrected log time belongs to the calendar day being viewed, in local time.
+export function logTimeToISO(dateValue, timeValue) {
+  const date = parseLocalDate(dateValue);
+  if (!date || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timeValue || "")) return null;
+  const [hours, minutes] = timeValue.split(":").map(Number);
+  date.setHours(hours, minutes, 0, 0);
+  // Reject times skipped by a daylight-saving transition instead of shifting them.
+  if (localDate(date) !== dateValue || localTime(date) !== timeValue) return null;
+  return date.toISOString();
+}
+
 export function shiftDate(value, days) {
   const date = parseLocalDate(value);
   if (!date) return "";

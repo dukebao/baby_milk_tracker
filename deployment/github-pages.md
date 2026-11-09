@@ -53,7 +53,9 @@ In Google OAuth client settings:
 - Authorized redirect URI: the Supabase callback shown in its Google provider
   settings (`https://YOUR-PROJECT.supabase.co/auth/v1/callback`).
 
-Both database migrations must already be applied. No SQL runs during deployment.
+All migrations in `supabase/migrations/` must already be applied. Existing
+installations need `202611090001_log_times.sql` to enable saving corrected log
+times. No SQL runs during deployment.
 
 ## Publish and verify
 

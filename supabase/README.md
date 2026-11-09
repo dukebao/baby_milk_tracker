@@ -4,7 +4,8 @@
 
 Create a Supabase project and run
 `migrations/202610040001_tracker.sql`, then
-`migrations/202610040002_household_setup.sql` in its SQL Editor once each. The scripts create
+`migrations/202610040002_household_setup.sql`, then
+`migrations/202611090001_log_times.sql` in its SQL Editor once each. The scripts create
 new `tracker_*` tables and functions in a transaction. It does not touch legacy
 tables or import Aria history. Do not use `backend/sql/supabase_schema.sql` for
 this architecture; that old schema was designed for a trusted Python backend.
@@ -20,6 +21,12 @@ owners name both on a setup screen before tracking; completion is saved in the
 database. Existing customized families and families with records are preserved.
 Rename the baby later in Settings. Existing local accounts/passwords do not transfer;
 create a new Supabase account.
+
+For an existing installation, run only the new `202611090001_log_times.sql`
+migration to enable time corrections for milk, pee, poop and breastfeeding logs.
+It grants household members permission to update the existing event timestamp;
+row-level security, record dates and authors remain protected. Existing records
+are preserved. The frontend's Edit form uses the selected day and device local time.
 
 ## Browser configuration
 
@@ -54,17 +61,17 @@ Supabase; it is not a React environment variable.
 ## Verification
 
 The frontend unit tests cover sessions, email confirmation and data operations.
-The migration can also be checked in a disposable PostgreSQL 17 database:
+The migrations can also be checked in a disposable PostgreSQL 17+ database:
 
 1. Run `tests/bootstrap.sql` (minimal Supabase Auth shim and roles).
-2. Run both migration files in order.
+2. Run all three migration files in order.
 3. Run `tests/access.sql` and `tests/setup.sql` with `psql -v ON_ERROR_STOP=1`.
 
 Never run the test bootstrap against a real Supabase project. The access tests
 roll back their fixtures and check household isolation, owner restrictions,
-single-use/email-bound invitations, shared logging, preferences and timestamp
-protection. A real project's login/email/OAuth behavior still requires a live
-smoke test after configuration.
+single-use/email-bound invitations, shared logging, preferences, log time
+corrections and author protection. A real project's login/email/OAuth behavior
+still requires a live smoke test after configuration.
 
 References:
 - [Auth SDK](https://supabase.com/docs/reference/javascript/auth-signup)
